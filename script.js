@@ -14,8 +14,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (savedStreams) {
         const parsedStreams = JSON.parse(savedStreams);
         parsedStreams.forEach(stream => {
-            streamList.push({ id: stream.id, title: stream.title });
-            createStreamDOM(stream.id, stream.title);
+            streamList.push({ id: stream.id, title: stream.title, type: stream.type || 'youtube' });
+            createStreamDOM(stream.id, stream.title, stream.type || 'youtube');
         });
     }
     updateGridPattern();
@@ -38,12 +38,10 @@ function updateGridPattern() {
 
     if (currentLayoutType === 'video-only') {
         container.style.gridAutoFlow = "";
-        
         if (window.innerWidth <= 1200) {
             container.style.gridTemplateColumns = "1fr";
             container.style.gridTemplateRows = `repeat(${count}, 1fr)`;
-        } 
-        else {
+        } else {
             if (count === 1) {
                 container.style.gridTemplateColumns = "1fr";
                 container.style.gridTemplateRows = "1fr";
@@ -80,10 +78,23 @@ function toggleModal(show) {
     else modal.classList.remove('open');
 }
 
-function extractVideoId(url) {
+function parseInputUrl(url) {
+    // Twitchの判定
+    if (url.includes('twitch.tv')) {
+        const match = url.match(/(?:twitch\.tv\/)([\w_]+)/);
+        if (match) return { id: match[1], type: 'twitch' };
+    }
+    
+    // YouTubeの判定
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : url;
+    const ytId = (match && match[2].length === 11) ? match[2] : url;
+    
+    if (ytId.length === 11 && /^[a-zA-Z0-9_-]{11}$/.test(ytId)) {
+        return { id: ytId, type: 'youtube' };
+    } else {
+        return { id: url.trim(), type: 'twitch' };
+    }
 }
 
 function handleAddStreamButton() {
@@ -94,45 +105,59 @@ function handleAddStreamButton() {
     
     if (!rawUrl) return;
 
-    const videoId = extractVideoId(rawUrl);
-    if (videoId.length !== 11) {
+    const streamData = parseInputUrl(rawUrl);
+    if (!streamData.id) {
         alert('入力内容が不正です。');
         return;
     }
 
-    if (!title) title = "配信";
+    if (!title) title = streamData.type === 'youtube' ? "YouTube配信" : "Twitch配信";
 
-    streamList.push({ id: videoId, title: title });
+    // データ保存
+    streamList.push({ id: streamData.id, title: title, type: streamData.type });
     saveToSession();
 
-    createStreamDOM(videoId, title);
+    // 画面追加
+    createStreamDOM(streamData.id, title, streamData.type);
 
     urlInput.value = '';
     titleInput.value = '';
 }
 
-function createStreamDOM(videoId, title) {
+function createStreamDOM(id, title, type) {
     const container = document.getElementById('chatContainer');
     const chatBox = document.createElement('div');
     chatBox.className = 'chat-box';
-    chatBox.dataset.videoid = videoId;
+    chatBox.dataset.videoid = id;
+    chatBox.dataset.type = type;
 
     const currentDomain = window.location.hostname || "localhost";
-    const cleanChatUrl = `https://www.youtube.com/live_chat?v=${videoId}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
+    
+    let videoSrc = "";
+    let chatSrc = "";
+
+    // 💡 配信サービスによって埋め込みURLを切り替える
+    if (type === 'youtube') {
+        videoSrc = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1`;
+        chatSrc = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
+    } else if (type === 'twitch') {
+        videoSrc = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&muted=true&autoplay=true`;
+        chatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
+    }
 
     chatBox.innerHTML = `
         <div class="chat-header">
             <div class="chat-header-left">
                 <span class="chat-title-text" title="${title}">${title}</span>
-                <span class="chat-id-text">(${videoId})</span>
+                <span class="chat-id-text">(${id})</span>
             </div>
-            <button class="set-main-btn" onclick="setMainVideo('${videoId}', this.closest('.chat-box'))">画面表示</button>
+            <button class="set-main-btn" onclick="setMainVideo('${id}', '${type}', this.closest('.chat-box'))">画面表示</button>
             <button class="close-btn" onclick="removeBox(this.closest('.chat-box'))">×</button>
         </div>
         <div class="box-content">
-            <iframe class="video-frame" data-id="${videoId}" src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            <iframe class="video-frame" data-id="${id}" data-type="${type}" src="${videoSrc}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
             <div class="chat-frame-container">
-                <iframe class="chat-frame" data-id="${videoId}" src="${cleanChatUrl}"></iframe>
+                <iframe class="chat-frame" data-id="${id}" data-type="${type}" src="${chatSrc}"></iframe>
             </div>
         </div>
     `;
@@ -140,16 +165,24 @@ function createStreamDOM(videoId, title) {
     container.appendChild(chatBox);
     
     if (!firstVideoId) {
-        setMainVideo(videoId, chatBox);
+        setMainVideo(id, type, chatBox);
     }
     updateGridPattern();
 }
 
-function setMainVideo(videoId, element) {
-    firstVideoId = videoId;
+function setMainVideo(id, type, element) {
+    firstVideoId = id;
     const theater = document.getElementById('theaterIframe');
-    theater.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-    theater.dataset.id = videoId;
+    const currentDomain = window.location.hostname || "localhost";
+    
+    if (type === 'youtube') {
+        theater.src = `https://www.youtube.com/embed/${id}?autoplay=1`;
+    } else if (type === 'twitch') {
+        theater.src = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true`;
+    }
+    
+    theater.dataset.id = id;
+    theater.dataset.type = type;
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
@@ -166,35 +199,51 @@ function removeBox(box) {
     if (firstVideoId === deletedId) {
         const nextBox = document.querySelector('.chat-box');
         if (nextBox) {
-            setMainVideo(nextBox.dataset.videoid, nextBox);
+            setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
         } else {
             firstVideoId = "";
             const theater = document.getElementById('theaterIframe');
             theater.src = "";
             theater.dataset.id = "";
+            theater.dataset.type = "";
         }
     }
     updateGridPattern();
 }
 
 function refreshAll() {
+    // 1. 大画面の更新
     const theater = document.getElementById('theaterIframe');
+    const currentDomain = window.location.hostname || "localhost";
     if (theater && theater.dataset.id) {
-        theater.src = `https://www.youtube.com/embed/${theater.dataset.id}?autoplay=1`;
+        if (theater.dataset.type === 'youtube') {
+            theater.src = `https://www.youtube.com/embed/${theater.dataset.id}?autoplay=1`;
+        } else {
+            theater.src = `https://player.twitch.tv/?channel=${theater.dataset.id}&parent=${currentDomain}&autoplay=true`;
+        }
     }
 
+    // 2. 各小画面の更新
     const videoFrames = document.querySelectorAll('.chat-container .video-frame');
     videoFrames.forEach(frame => {
         if (frame.dataset.id) {
-            frame.src = `https://www.youtube.com/embed/${frame.dataset.id}?autoplay=1&mute=1`;
+            if (frame.dataset.type === 'youtube') {
+                frame.src = `https://www.youtube.com/embed/${frame.dataset.id}?autoplay=1&mute=1`;
+            } else {
+                frame.src = `https://player.twitch.tv/?channel=${frame.dataset.id}&parent=${currentDomain}&muted=true&autoplay=true`;
+            }
         }
     });
 
+    // 3. 各チャットの更新
     const chatFrames = document.querySelectorAll('.chat-container .chat-frame');
-    const currentDomain = window.location.hostname || "localhost";
     chatFrames.forEach(frame => {
         if (frame.dataset.id) {
-            frame.src = `https://www.youtube.com/live_chat?v=${frame.dataset.id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
+            if (frame.dataset.type === 'youtube') {
+                frame.src = `https://www.youtube.com/live_chat?v=${frame.dataset.id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
+            } else {
+                frame.src = `https://www.twitch.tv/embed/${frame.dataset.id}/chat?parent=${currentDomain}&darkpopout`;
+            }
         }
     });
 }

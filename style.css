@@ -235,6 +235,11 @@ iframe.chat-frame { width: 100%; border: none; height: calc(100% + 55px); margin
 }
 .mode-multi-mix .set-main-btn, .mode-chat-only .set-main-btn, .mode-video-only .set-main-btn { display: none; }
 
+iframe.chat-frame[data-type="twitch"] {
+    height: calc(100% + 115px);
+    margin-bottom: -115px;
+}
+
 /* モーダル */
 .modal-overlay {
     position: fixed;
@@ -280,3 +285,4 @@ iframe.chat-frame { width: 100%; border: none; height: calc(100% + 55px); margin
     border-radius: 5px;
     margin-top: 15px;
 }
+
