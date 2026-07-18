@@ -1,6 +1,9 @@
 let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
+// 💡 現在シアター(メイン画面)に表示中の枠のuid。この枠は音がシアター側から出るので、
+//    小画面側のプレイヤーは強制ミュート＆スライダー無効化して二重再生を防ぐ
+let currentMainUid = null;
 
 // 💡 完全に独立した枠ID（uid）を鍵にしてリモコン（インスタンス）を個別管理する
 let ytPlayers = {};
@@ -273,6 +276,44 @@ function setMainVideo(id, type, element) {
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
+
+    // 💡 前にメインだった枠のスライダーを操作可能に戻す
+    if (currentMainUid) {
+        const prevBox = document.querySelector(`.chat-box[data-uid="${currentMainUid}"]`);
+        if (prevBox) {
+            const prevSlider = prevBox.querySelector('.volume-slider');
+            if (prevSlider) prevSlider.disabled = false;
+        }
+    }
+
+    // 💡 新しくメインになった枠は、音がシアター側から出るので裏の小画面プレイヤーを強制ミュート
+    if (element) {
+        const newUid = element.dataset.uid;
+        currentMainUid = newUid;
+        forceMutePlayer(newUid, type);
+        const slider = element.querySelector('.volume-slider');
+        if (slider) {
+            slider.value = 0;
+            slider.disabled = true;
+        }
+    } else {
+        currentMainUid = null;
+    }
+}
+
+// 💡 指定uidのプレイヤーを確実にミュート状態にする（二重音声防止用）
+function forceMutePlayer(uid, type) {
+    if (type === 'youtube' && ytPlayers[uid]) {
+        try {
+            ytPlayers[uid].mute();
+            ytPlayers[uid].setVolume(0);
+        } catch (e) { /* まだAPI準備中の場合はonReady側のmuteで担保される */ }
+    } else if (type === 'twitch' && twitchPlayers[uid]) {
+        try {
+            twitchPlayers[uid].setMuted(true);
+            twitchPlayers[uid].setVolume(0);
+        } catch (e) {}
+    }
 }
 
 function removeBox(box, uid, type) {
@@ -300,6 +341,7 @@ function removeBox(box, uid, type) {
             setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
         } else {
             firstVideoId = "";
+            currentMainUid = null;
             document.getElementById('theaterPlayerPlace').innerHTML = '';
         }
     }
@@ -311,6 +353,8 @@ function refreshAll() {
     container.innerHTML = "";
     ytPlayers = {};
     twitchPlayers = {};
+    firstVideoId = "";
+    currentMainUid = null;
     
     if (streamList.length > 0) {
         streamList.forEach(stream => {
