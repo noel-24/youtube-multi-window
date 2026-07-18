@@ -211,20 +211,25 @@ button:hover { opacity: 0.9; }
 }
 .close-btn:hover { color: var(--accent-color); }
 
-/* 音量調整バーのラッパー */
+/* 💡 スライダーラッパーの微調整 */
 .volume-control-wrapper {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     color: #aaa;
     font-size: 0.75rem;
     margin-right: 8px;
 }
+/* 💡 修正：左端にピタッとくっつくようにブラウザ独自の余白（margin/padding）を完全リセット */
 .volume-slider {
-    width: 70px;
+    width: 65px;
     height: 4px;
     cursor: pointer;
     accent-color: var(--accent-color);
+    margin: 0;
+    padding: 0;
+    background: #444;
+    border-radius: 2px;
 }
 
 .box-content {
@@ -250,7 +255,6 @@ button:hover { opacity: 0.9; }
     height: 100%;
     border: none;
 }
-/* 画面タッチ完全ガードシールド */
 .video-touch-guard {
     position: absolute;
     top: 0;

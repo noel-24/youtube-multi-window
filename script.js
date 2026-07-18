@@ -7,7 +7,6 @@ let twitchPlayers = {};
 let theaterPlayer = null;
 let isYTAPIReady = false;
 
-// YouTube公式APIの準備完了コールバック
 function onYouTubeIframeAPIReady() {
     isYTAPIReady = true;
     if (streamList.length > 0) {
@@ -27,7 +26,6 @@ window.addEventListener('DOMContentLoaded', () => {
     if (savedStreams) {
         const parsedStreams = JSON.parse(savedStreams);
         streamList = parsedStreams;
-        // YouTube APIがまだ準備できていなければ、onYouTubeIframeAPIReady側に処理を委ねる
         if (window.YT && window.YT.Player) {
             isYTAPIReady = true;
             initSavedStreams();
@@ -155,7 +153,6 @@ function createStreamDOM(id, title, type) {
     const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
     const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    // インスタンス特定のためにDOM上のIDを固定化
     const uniqueId = `player-${type}-${id}`;
 
     chatBox.innerHTML = `
@@ -182,7 +179,6 @@ function createStreamDOM(id, title, type) {
 
     container.appendChild(chatBox);
 
-    // 💡 修正点：DOM構築完了直後に確実にAPIと紐づくようタイミングを厳密化
     if (type === 'youtube') {
         const initYT = () => {
             if (isYTAPIReady && window.YT && window.YT.Player) {
@@ -226,16 +222,17 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-// 💡 修正点：API側のメソッド呼び出しの安全性を強化
+// 💡 修正：値が0の時はただの数値設定を無視し、API公式の「Mute」を叩き込んで完璧にシャットアウトする
 function changeVolume(id, type, value) {
     const val = parseInt(value);
     
     if (type === 'youtube' && ytPlayers[id]) {
         try {
             if (val === 0) {
-                ytPlayers[id].mute();
+                ytPlayers[id].mute(); // 💡 強制ミュート
+                ytPlayers[id].setVolume(0);
             } else {
-                ytPlayers[id].unMute();
+                ytPlayers[id].unMute(); // ミュート解除
                 ytPlayers[id].setVolume(val);
             }
         } catch (e) {
@@ -244,10 +241,11 @@ function changeVolume(id, type, value) {
     } else if (type === 'twitch' && twitchPlayers[id]) {
         try {
             if (val === 0) {
-                twitchPlayers[id].setMuted(true);
+                twitchPlayers[id].setMuted(true); // 💡 強制ミュート
+                twitchPlayers[id].setVolume(0);
             } else {
                 twitchPlayers[id].setMuted(false);
-                twitchPlayers[id].setVolume(val / 100); // Twitchの 0.0〜1.0 に変換
+                twitchPlayers[id].setVolume(val / 100);
             }
         } catch (e) {
             console.log("Twitch API object not ready yet.");
