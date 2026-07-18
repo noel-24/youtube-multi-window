@@ -200,7 +200,6 @@ button:hover { opacity: 0.9; }
     color: #eee;
     max-width: 100px;
 }
-.chat-id-text { color: #888; font-size: 0.75rem; display: none; } /* IDはすっきりさせるため非表示に */
 
 .close-btn {
     background: none;
@@ -212,7 +211,7 @@ button:hover { opacity: 0.9; }
 }
 .close-btn:hover { color: var(--accent-color); }
 
-/* 💡 新設：独自音量スライダーのデザイン */
+/* 音量調整バーのラッパー */
 .volume-control-wrapper {
     display: flex;
     align-items: center;
@@ -225,7 +224,7 @@ button:hover { opacity: 0.9; }
     width: 70px;
     height: 4px;
     cursor: pointer;
-    accent-color: var(--accent-color); /* つまみを赤色に */
+    accent-color: var(--accent-color);
 }
 
 .box-content {
@@ -239,7 +238,6 @@ button:hover { opacity: 0.9; }
     min-height: 0;
 }
 
-/* 💡 解決3：画面操作完全ガード構造 */
 .video-frame-wrapper {
     position: relative;
     width: 100%;
@@ -252,7 +250,7 @@ button:hover { opacity: 0.9; }
     height: 100%;
     border: none;
 }
-/* 💡 これが動画プレイヤーの真上に重なる透明なシールドになります */
+/* 画面タッチ完全ガードシールド */
 .video-touch-guard {
     position: absolute;
     top: 0;
@@ -260,13 +258,31 @@ button:hover { opacity: 0.9; }
     width: 100%;
     height: 100%;
     z-index: 10;
-    background: rgba(0,0,0,0); /* 完全透明 */
-    pointer-events: auto;      /* マウスクリックをここでガッチリ通せんぼする */
+    background: rgba(0,0,0,0);
+    pointer-events: auto;
 }
 
-/* 送信欄隠し */
-.chat-frame-container { width: 100%; overflow: hidden; position: relative; flex-grow: 1; min-height: 0; z-index: 11; }
-iframe.chat-frame { width: 100%; border: none; height: calc(100% + 55px); margin-bottom: -55px; }
+/* 送信欄隠しトリック */
+.chat-frame-container { 
+    width: 100%; 
+    overflow: hidden; 
+    position: relative; 
+    flex-grow: 1; 
+    min-height: 0; 
+    z-index: 11; 
+}
+iframe.chat-frame { 
+    width: 100%; 
+    border: none; 
+}
+iframe.chat-frame[data-type="youtube"] {
+    height: calc(100% + 55px);
+    margin-bottom: -55px;
+}
+iframe.chat-frame[data-type="twitch"] {
+    height: calc(100% + 115px);
+    margin-bottom: -115px;
+}
 
 .chat-box.selected { border: 2px solid #00ffcc; }
 .set-main-btn {
@@ -275,7 +291,6 @@ iframe.chat-frame { width: 100%; border: none; height: calc(100% + 55px); margin
 }
 .mode-multi-mix .set-main-btn, .mode-chat-only .set-main-btn, .mode-video-only .set-main-btn { display: none; }
 
-/* コメント欄のみモードの時は音量調整を隠す */
 .mode-chat-only .volume-control-wrapper { display: none; }
 
 /* モーダル */
