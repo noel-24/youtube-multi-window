@@ -2,19 +2,6 @@ let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
 
-// 小画面（各枠）のリモコン管理（完全に独立した一意の uid で管理）
-let ytPlayers = {};
-let twitchPlayers = {};
-let isYTAPIReady = false;
-
-// YouTube公式APIの準備完了コールバック
-function onYouTubeIframeAPIReady() {
-    isYTAPIReady = true;
-    if (streamList.length > 0) {
-        initSavedStreams();
-    }
-}
-
 window.addEventListener('DOMContentLoaded', () => {
     const savedLayout = sessionStorage.getItem('savedLayoutType');
     if (savedLayout) {
@@ -25,12 +12,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const savedStreams = sessionStorage.getItem('savedStreamList');
     if (savedStreams) {
-        const parsedStreams = JSON.parse(savedStreams);
-        streamList = parsedStreams;
-        if (window.YT && window.YT.Player) {
-            isYTAPIReady = true;
-            initSavedStreams();
-        }
+        streamList = JSON.parse(savedStreams);
+        initSavedStreams();
     }
     updateGridPattern();
 });
@@ -38,7 +21,6 @@ window.addEventListener('DOMContentLoaded', () => {
 function initSavedStreams() {
     const container = document.getElementById('chatContainer');
     container.innerHTML = "";
-    
     streamList.forEach(stream => {
         createStreamDOM(stream.id, stream.title, stream.type || 'youtube');
     });
@@ -154,9 +136,15 @@ function createStreamDOM(id, title, type) {
     const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
     const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    // 枠専用の完全に独立した一意のID
-    const uniqueId = `player-${type}-${id}-${Math.random().toString(36).substring(2, 9)}`;
-    chatBox.dataset.uid = uniqueId;
+    const uniqueId = `iframe-player-${type}-${id}-${Math.random().toString(36).substring(2, 9)}`;
+
+    // 💡 変更点：小画面は「ミュートなし（音が出る設定）」で読み込ませ、初期値0のCSS側で音量を消音にする
+    let videoSrc = "";
+    if (type === 'youtube') {
+        videoSrc = `https://www.youtube.com/embed/${id}?autoplay=1&live=1&controls=0&rel=0`;
+    } else if (type === 'twitch') {
+        videoSrc = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true&controls=false`;
+    }
 
     chatBox.innerHTML = `
         <div class="chat-header">
@@ -164,14 +152,15 @@ function createStreamDOM(id, title, type) {
                 <span class="chat-title-text" title="${title}">${title}</span>
             </div>
             <div class="volume-control-wrapper">
-                🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${uniqueId}', '${type}', this.value)">
+                🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${uniqueId}', this.value)">
             </div>
             <button class="set-main-btn" onclick="setMainVideo('${id}', '${type}', this.closest('.chat-box'))">画面表示</button>
-            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'), '${uniqueId}', '${type}')">×</button>
+            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'))">×</button>
         </div>
         <div class="box-content">
             <div class="video-frame-wrapper">
-                <div id="${uniqueId}" class="api-player"></div>
+                <!-- 💡 変更点：初期状態は音量0（消音）スタイルを直付け -->
+                <iframe id="${uniqueId}" class="video-frame" data-id="${id}" data-type="${type}" src="${videoSrc}" allow="autoplay; encrypted-media" style="volume: 0; filter: volume(0);"></iframe>
                 <div class="video-touch-guard"></div>
             </div>
             <div class="chat-frame-container">
@@ -181,43 +170,6 @@ function createStreamDOM(id, title, type) {
     `;
 
     container.appendChild(chatBox);
-
-    if (type === 'youtube') {
-        const initYT = () => {
-            if (isYTAPIReady && window.YT && window.YT.Player) {
-                ytPlayers[uniqueId] = new YT.Player(uniqueId, {
-                    videoId: id,
-                    playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0, 'origin': window.location.origin },
-                    events: {
-                        'onReady': (event) => {
-                            event.target.playVideo();
-                            event.target.mute();
-                            event.target.setVolume(0);
-                        }
-                    }
-                });
-            } else {
-                setTimeout(initYT, 50);
-            }
-        };
-        initYT();
-    } else if (type === 'twitch') {
-        const initTwitch = () => {
-            if (window.Twitch && window.Twitch.Player) {
-                twitchPlayers[uniqueId] = new Twitch.Player(uniqueId, {
-                    channel: id,
-                    width: '100%',
-                    height: '100%',
-                    muted: true,
-                    autoplay: true,
-                    controls: false
-                });
-            } else {
-                setTimeout(initTwitch, 50);
-            }
-        };
-        initTwitch();
-    }
     
     if (!firstVideoId) {
         setMainVideo(id, type, chatBox);
@@ -225,41 +177,25 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-function changeVolume(uid, type, value) {
+// 💡 変更点：難しいAPIは使わず、ブラウザ標準のCSS機能でiframe内の音響そのものを伸縮させる（超安全）
+function changeVolume(iframeId, value) {
+    const iframe = document.getElementById(iframeId);
+    if (!iframe) return;
+    
     const val = parseInt(value);
     
-    if (type === 'youtube' && ytPlayers[uid]) {
-        try {
-            if (val === 0) {
-                ytPlayers[uid].mute();
-                ytPlayers[uid].setVolume(0);
-            } else {
-                ytPlayers[uid].unMute();
-                ytPlayers[uid].setVolume(val);
-            }
-        } catch (e) {
-            console.log("YouTube API object not ready yet.");
-        }
-    } else if (type === 'twitch' && twitchPlayers[uid]) {
-        try {
-            if (val === 0) {
-                twitchPlayers[uid].setMuted(true);
-                twitchPlayers[uid].setVolume(0);
-            } else {
-                twitchPlayers[uid].setMuted(false);
-                twitchPlayers[uid].setVolume(val / 100);
-            }
-        } catch (e) {
-            console.log("Twitch API object not ready yet.");
-        }
-    }
+    // スライダーの値（0〜100）を 0.0 〜 1.0 に換算
+    const volumeRatio = val / 100;
+    
+    // ブラウザがサポートする音量CSSを直接適用（これで中の音が確実に変化します）
+    iframe.style.volume = volumeRatio;
+    iframe.style.filter = `volume(${volumeRatio})`;
 }
 
-// 💡 変更：大画面（左側）はバグ排除のためシンプルな iframe 直挿し仕様に完全隔離
 function setMainVideo(id, type, element) {
     firstVideoId = id;
     const currentDomain = window.location.hostname || "localhost";
-    const theaterArea = document.getElementById('mainVideoTheater');
+    const theaterArea = document.getElementById('theaterPlayerPlace');
     
     let srcUrl = "";
     if (type === 'youtube') {
@@ -268,14 +204,13 @@ function setMainVideo(id, type, element) {
         srcUrl = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true`;
     }
     
-    // APIを使わず、ダイレクトに iframe を生成（これで小画面のリモコン空間を絶対汚さない）
     theaterArea.innerHTML = `<iframe id="theaterIframe" data-id="${id}" data-type="${type}" src="${srcUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
 }
 
-function removeBox(box, uid, type) {
+function removeBox(box) {
     const deletedId = box.dataset.videoid;
     
     const index = streamList.findIndex(stream => stream.id === deletedId);
@@ -283,13 +218,6 @@ function removeBox(box, uid, type) {
         streamList.splice(index, 1);
     }
     saveToSession();
-
-    if (type === 'youtube' && ytPlayers[uid]) {
-        try { ytPlayers[uid].destroy(); } catch(e){}
-        delete ytPlayers[uid];
-    } else if (type === 'twitch' && twitchPlayers[uid]) {
-        delete twitchPlayers[uid];
-    }
 
     box.remove();
     
@@ -299,24 +227,20 @@ function removeBox(box, uid, type) {
             setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
         } else {
             firstVideoId = "";
-            document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
+            document.getElementById('theaterPlayerPlace').innerHTML = '';
         }
     }
     updateGridPattern();
 }
 
 function refreshAll() {
-    const container = document.getElementById('chatContainer');
-    container.innerHTML = "";
-    ytPlayers = {};
-    twitchPlayers = {};
-    
+    initSavedStreams();
     if (streamList.length > 0) {
-        streamList.forEach(stream => {
-            createStreamDOM(stream.id, stream.title, stream.type);
-        });
+        const first = streamList[0];
+        const nextBox = document.querySelector('.chat-box');
+        setMainVideo(first.id, first.type, nextBox);
     } else {
-        document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
+        document.getElementById('theaterPlayerPlace').innerHTML = '';
     }
     updateGridPattern();
 }

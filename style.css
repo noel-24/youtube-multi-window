@@ -165,7 +165,7 @@ button:hover { opacity: 0.9; }
 .mode-video-only .chat-frame-container { display: none !important; }
 
 /* 各配信・チャットアイテムのスタイル */
-.main-video-theater iframe, .main-video-theater iframe object { width: 100%; height: 100%; border: none; }
+.main-video-theater iframe { width: 100%; height: 100%; border: none; }
 
 .chat-box {
     background-color: var(--card-bg);
@@ -211,7 +211,6 @@ button:hover { opacity: 0.9; }
 }
 .close-btn:hover { color: var(--accent-color); }
 
-/* 💡 スライダーラッパーの微調整 */
 .volume-control-wrapper {
     display: flex;
     align-items: center;
@@ -220,7 +219,6 @@ button:hover { opacity: 0.9; }
     font-size: 0.75rem;
     margin-right: 8px;
 }
-/* 💡 修正：左端にピタッとくっつくようにブラウザ独自の余白（margin/padding）を完全リセット */
 .volume-slider {
     width: 65px;
     height: 4px;
@@ -250,10 +248,12 @@ button:hover { opacity: 0.9; }
     flex-shrink: 1;
     min-height: 0;
 }
-.api-player {
+/* 💡 iframe要素自体のデザイン */
+iframe.video-frame {
     width: 100%;
     height: 100%;
     border: none;
+    display: block;
 }
 .video-touch-guard {
     position: absolute;
