@@ -5,13 +5,12 @@ let currentLayoutType = "focus-one";
 let ytPlayers = {};
 let twitchPlayers = {};
 let theaterPlayer = null;
-let isYTAPIReady = false; // 💡 YouTube APIの準備フラグ
+let isYTAPIReady = false;
 
-// 💡 YouTube公式APIが準備完了すると自動的に呼ばれる特殊な関数
+// YouTube公式APIの準備完了コールバック
 function onYouTubeIframeAPIReady() {
     isYTAPIReady = true;
-    // セッションから復元する際、APIが遅れて読み込まれた場合のための安全策
-    if (streamList.length > 0 && Object.keys(ytPlayers).length === 0) {
+    if (streamList.length > 0) {
         initSavedStreams();
     }
 }
@@ -27,16 +26,19 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedStreams = sessionStorage.getItem('savedStreamList');
     if (savedStreams) {
         const parsedStreams = JSON.parse(savedStreams);
-        streamList = parsedStreams; // データを格納
-        initSavedStreams();
+        streamList = parsedStreams;
+        // YouTube APIがまだ準備できていなければ、onYouTubeIframeAPIReady側に処理を委ねる
+        if (window.YT && window.YT.Player) {
+            isYTAPIReady = true;
+            initSavedStreams();
+        }
     }
     updateGridPattern();
 });
 
-// 💡 復元時、APIの準備状態を見て安全にプレイヤーを組み立てる関数
 function initSavedStreams() {
     const container = document.getElementById('chatContainer');
-    container.innerHTML = ""; // 一旦リセット
+    container.innerHTML = "";
     
     streamList.forEach(stream => {
         createStreamDOM(stream.id, stream.title, stream.type || 'youtube');
@@ -153,7 +155,8 @@ function createStreamDOM(id, title, type) {
     const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
     const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    const uniqueId = `player-${type}-${id}-${Date.now()}`;
+    // インスタンス特定のためにDOM上のIDを固定化
+    const uniqueId = `player-${type}-${id}`;
 
     chatBox.innerHTML = `
         <div class="chat-header">
@@ -179,19 +182,23 @@ function createStreamDOM(id, title, type) {
 
     container.appendChild(chatBox);
 
-    // 💡 修正：YouTubeの場合、APIの準備が完了しているか（isYTAPIReady）を確認してから初期化
+    // 💡 修正点：DOM構築完了直後に確実にAPIと紐づくようタイミングを厳密化
     if (type === 'youtube') {
         const initYT = () => {
             if (isYTAPIReady && window.YT && window.YT.Player) {
                 ytPlayers[id] = new YT.Player(uniqueId, {
                     videoId: id,
-                    playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0 },
+                    playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0, 'origin': window.location.origin },
                     events: {
-                        'onReady': (event) => { event.target.playVideo(); event.target.mute(); }
+                        'onReady': (event) => {
+                            event.target.playVideo();
+                            event.target.mute();
+                            event.target.setVolume(0);
+                        }
                     }
                 });
             } else {
-                setTimeout(initYT, 100); // 準備ができるまで100msごとにリトライ
+                setTimeout(initYT, 50);
             }
         };
         initYT();
@@ -207,7 +214,7 @@ function createStreamDOM(id, title, type) {
                     controls: false
                 });
             } else {
-                setTimeout(initTwitch, 100);
+                setTimeout(initTwitch, 50);
             }
         };
         initTwitch();
@@ -219,21 +226,31 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
+// 💡 修正点：API側のメソッド呼び出しの安全性を強化
 function changeVolume(id, type, value) {
     const val = parseInt(value);
-    if (type === 'youtube' && ytPlayers[id] && typeof ytPlayers[id].setVolume === 'function') {
-        if (val === 0) {
-            ytPlayers[id].mute();
-        } else {
-            ytPlayers[id].unMute();
-            ytPlayers[id].setVolume(val);
+    
+    if (type === 'youtube' && ytPlayers[id]) {
+        try {
+            if (val === 0) {
+                ytPlayers[id].mute();
+            } else {
+                ytPlayers[id].unMute();
+                ytPlayers[id].setVolume(val);
+            }
+        } catch (e) {
+            console.log("YouTube API object not ready yet.");
         }
     } else if (type === 'twitch' && twitchPlayers[id]) {
-        if (val === 0) {
-            twitchPlayers[id].setMuted(true);
-        } else {
-            twitchPlayers[id].setMuted(false);
-            twitchPlayers[id].setVolume(val / 100);
+        try {
+            if (val === 0) {
+                twitchPlayers[id].setMuted(true);
+            } else {
+                twitchPlayers[id].setMuted(false);
+                twitchPlayers[id].setVolume(val / 100); // Twitchの 0.0〜1.0 に変換
+            }
+        } catch (e) {
+            console.log("Twitch API object not ready yet.");
         }
     }
 }
@@ -252,21 +269,23 @@ function setMainVideo(id, type, element) {
                     events: { 'onReady': (event) => event.target.playVideo() }
                 });
             } else {
-                setTimeout(initTheaterYT, 100);
+                setTimeout(initTheaterYT, 50);
             }
         };
         initTheaterYT();
     } else if (type === 'twitch') {
         const initTheaterTwitch = () => {
             if (window.Twitch && window.Twitch.Player) {
+                const currentDomain = window.location.hostname || "localhost";
                 theaterPlayer = new Twitch.Player('theaterIframe', {
                     channel: id,
                     width: '100%',
                     height: '100%',
+                    parent: [currentDomain],
                     autoplay: true
                 });
             } else {
-                setTimeout(initTheaterTwitch, 100);
+                setTimeout(initTheaterTwitch, 50);
             }
         };
         initTheaterTwitch();
@@ -289,7 +308,7 @@ function removeBox(box, id, type) {
     saveToSession();
 
     if (type === 'youtube' && ytPlayers[id]) {
-        ytPlayers[id].destroy();
+        try { ytPlayers[id].destroy(); } catch(e){}
         delete ytPlayers[id];
     } else if (type === 'twitch' && twitchPlayers[id]) {
         delete twitchPlayers[id];
