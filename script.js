@@ -2,12 +2,12 @@ let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
 
-// 💡 変更：動画IDではなく、世界に1つだけの「枠専用ID（uid）」でリモコンを管理する
+// 小画面（各枠）のリモコン管理（完全に独立した一意の uid で管理）
 let ytPlayers = {};
 let twitchPlayers = {};
-let theaterPlayer = null;
 let isYTAPIReady = false;
 
+// YouTube公式APIの準備完了コールバック
 function onYouTubeIframeAPIReady() {
     isYTAPIReady = true;
     if (streamList.length > 0) {
@@ -154,9 +154,9 @@ function createStreamDOM(id, title, type) {
     const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
     const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    // 💡 修正：絶対に重複しない「この枠専用の個別ID（uid）」を作成
+    // 枠専用の完全に独立した一意のID
     const uniqueId = `player-${type}-${id}-${Math.random().toString(36).substring(2, 9)}`;
-    chatBox.dataset.uid = uniqueId; // 自作のカスタム属性として要素に記憶させておく
+    chatBox.dataset.uid = uniqueId;
 
     chatBox.innerHTML = `
         <div class="chat-header">
@@ -164,7 +164,6 @@ function createStreamDOM(id, title, type) {
                 <span class="chat-title-text" title="${title}">${title}</span>
             </div>
             <div class="volume-control-wrapper">
-                <!-- 💡 修正：changeVolume に動画IDではなく『uniqueId（uid）』を渡す -->
                 🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${uniqueId}', '${type}', this.value)">
             </div>
             <button class="set-main-btn" onclick="setMainVideo('${id}', '${type}', this.closest('.chat-box'))">画面表示</button>
@@ -186,7 +185,6 @@ function createStreamDOM(id, title, type) {
     if (type === 'youtube') {
         const initYT = () => {
             if (isYTAPIReady && window.YT && window.YT.Player) {
-                // 💡 修正：一意の uniqueId でインスタンス（リモコン）を登録
                 ytPlayers[uniqueId] = new YT.Player(uniqueId, {
                     videoId: id,
                     playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0, 'origin': window.location.origin },
@@ -206,7 +204,6 @@ function createStreamDOM(id, title, type) {
     } else if (type === 'twitch') {
         const initTwitch = () => {
             if (window.Twitch && window.Twitch.Player) {
-                // 💡 修正：一意の uniqueId でインスタンス（リモコン）を登録
                 twitchPlayers[uniqueId] = new Twitch.Player(uniqueId, {
                     channel: id,
                     width: '100%',
@@ -228,7 +225,6 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-// 💡 修正：第一引数に『uid』を受け取り、ピンポイントでリモコンを動かす
 function changeVolume(uid, type, value) {
     const val = parseInt(value);
     
@@ -259,60 +255,29 @@ function changeVolume(uid, type, value) {
     }
 }
 
+// 💡 変更：大画面（左側）はバグ排除のためシンプルな iframe 直挿し仕様に完全隔離
 function setMainVideo(id, type, element) {
     firstVideoId = id;
+    const currentDomain = window.location.hostname || "localhost";
+    const theaterArea = document.getElementById('mainVideoTheater');
     
-    document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
-    
+    let srcUrl = "";
     if (type === 'youtube') {
-        const initTheaterYT = () => {
-            if (isYTAPIReady && window.YT && window.YT.Player) {
-                theaterPlayer = new YT.Player('theaterIframe', {
-                    videoId: id,
-                    playerVars: { 'autoplay': 1, 'live': 1 },
-                    events: { 'onReady': (event) => event.target.playVideo() }
-                });
-            } else {
-                setTimeout(initTheaterYT, 50);
-            }
-        };
-        initTheaterYT();
+        srcUrl = `https://www.youtube.com/embed/${id}?autoplay=1&live=1`;
     } else if (type === 'twitch') {
-        const initTheaterTwitch = () => {
-            if (window.Twitch && window.Twitch.Player) {
-                const currentDomain = window.location.hostname || "localhost";
-                theaterPlayer = new Twitch.Player('theaterIframe', {
-                    channel: id,
-                    width: '100%',
-                    height: '100%',
-                    parent: [currentDomain],
-                    autoplay: true
-                });
-            } else {
-                setTimeout(initTheaterTwitch, 50);
-            }
-        };
-        initTheaterTwitch();
+        srcUrl = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true`;
     }
     
-    setTimeout(() => {
-        const theaterDOM = document.getElementById('theaterIframe');
-        if (theaterDOM) {
-            theaterDOM.dataset.id = id;
-            theaterDOM.dataset.type = type;
-        }
-    }, 200);
+    // APIを使わず、ダイレクトに iframe を生成（これで小画面のリモコン空間を絶対汚さない）
+    theaterArea.innerHTML = `<iframe id="theaterIframe" data-id="${id}" data-type="${type}" src="${srcUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
 }
 
-// 💡 修正：消すときも『uid』を元に、その枠のリモコンだけを確実に破棄する
 function removeBox(box, uid, type) {
     const deletedId = box.dataset.videoid;
     
-    // リストからは元の動画IDで検索して削除
-    // ※ 完全に一致する最初の1つだけ消すための賢い処理
     const index = streamList.findIndex(stream => stream.id === deletedId);
     if (index !== -1) {
         streamList.splice(index, 1);
@@ -335,7 +300,6 @@ function removeBox(box, uid, type) {
         } else {
             firstVideoId = "";
             document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
-            theaterPlayer = null;
         }
     }
     updateGridPattern();
@@ -353,7 +317,6 @@ function refreshAll() {
         });
     } else {
         document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
-        theaterPlayer = null;
     }
     updateGridPattern();
 }
