@@ -2,6 +2,7 @@ let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
 
+// 💡 変更：動画IDではなく、世界に1つだけの「枠専用ID（uid）」でリモコンを管理する
 let ytPlayers = {};
 let twitchPlayers = {};
 let theaterPlayer = null;
@@ -153,7 +154,9 @@ function createStreamDOM(id, title, type) {
     const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
     const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    const uniqueId = `player-${type}-${id}`;
+    // 💡 修正：絶対に重複しない「この枠専用の個別ID（uid）」を作成
+    const uniqueId = `player-${type}-${id}-${Math.random().toString(36).substring(2, 9)}`;
+    chatBox.dataset.uid = uniqueId; // 自作のカスタム属性として要素に記憶させておく
 
     chatBox.innerHTML = `
         <div class="chat-header">
@@ -161,10 +164,11 @@ function createStreamDOM(id, title, type) {
                 <span class="chat-title-text" title="${title}">${title}</span>
             </div>
             <div class="volume-control-wrapper">
-                🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${id}', '${type}', this.value)">
+                <!-- 💡 修正：changeVolume に動画IDではなく『uniqueId（uid）』を渡す -->
+                🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${uniqueId}', '${type}', this.value)">
             </div>
             <button class="set-main-btn" onclick="setMainVideo('${id}', '${type}', this.closest('.chat-box'))">画面表示</button>
-            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'), '${id}', '${type}')">×</button>
+            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'), '${uniqueId}', '${type}')">×</button>
         </div>
         <div class="box-content">
             <div class="video-frame-wrapper">
@@ -182,7 +186,8 @@ function createStreamDOM(id, title, type) {
     if (type === 'youtube') {
         const initYT = () => {
             if (isYTAPIReady && window.YT && window.YT.Player) {
-                ytPlayers[id] = new YT.Player(uniqueId, {
+                // 💡 修正：一意の uniqueId でインスタンス（リモコン）を登録
+                ytPlayers[uniqueId] = new YT.Player(uniqueId, {
                     videoId: id,
                     playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0, 'origin': window.location.origin },
                     events: {
@@ -201,7 +206,8 @@ function createStreamDOM(id, title, type) {
     } else if (type === 'twitch') {
         const initTwitch = () => {
             if (window.Twitch && window.Twitch.Player) {
-                twitchPlayers[id] = new Twitch.Player(uniqueId, {
+                // 💡 修正：一意の uniqueId でインスタンス（リモコン）を登録
+                twitchPlayers[uniqueId] = new Twitch.Player(uniqueId, {
                     channel: id,
                     width: '100%',
                     height: '100%',
@@ -222,30 +228,30 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-// 💡 修正：値が0の時はただの数値設定を無視し、API公式の「Mute」を叩き込んで完璧にシャットアウトする
-function changeVolume(id, type, value) {
+// 💡 修正：第一引数に『uid』を受け取り、ピンポイントでリモコンを動かす
+function changeVolume(uid, type, value) {
     const val = parseInt(value);
     
-    if (type === 'youtube' && ytPlayers[id]) {
+    if (type === 'youtube' && ytPlayers[uid]) {
         try {
             if (val === 0) {
-                ytPlayers[id].mute(); // 💡 強制ミュート
-                ytPlayers[id].setVolume(0);
+                ytPlayers[uid].mute();
+                ytPlayers[uid].setVolume(0);
             } else {
-                ytPlayers[id].unMute(); // ミュート解除
-                ytPlayers[id].setVolume(val);
+                ytPlayers[uid].unMute();
+                ytPlayers[uid].setVolume(val);
             }
         } catch (e) {
             console.log("YouTube API object not ready yet.");
         }
-    } else if (type === 'twitch' && twitchPlayers[id]) {
+    } else if (type === 'twitch' && twitchPlayers[uid]) {
         try {
             if (val === 0) {
-                twitchPlayers[id].setMuted(true); // 💡 強制ミュート
-                twitchPlayers[id].setVolume(0);
+                twitchPlayers[uid].setMuted(true);
+                twitchPlayers[uid].setVolume(0);
             } else {
-                twitchPlayers[id].setMuted(false);
-                twitchPlayers[id].setVolume(val / 100);
+                twitchPlayers[uid].setMuted(false);
+                twitchPlayers[uid].setVolume(val / 100);
             }
         } catch (e) {
             console.log("Twitch API object not ready yet.");
@@ -301,20 +307,28 @@ function setMainVideo(id, type, element) {
     if(element) element.classList.add('selected');
 }
 
-function removeBox(box, id, type) {
-    streamList = streamList.filter(stream => stream.id !== id);
+// 💡 修正：消すときも『uid』を元に、その枠のリモコンだけを確実に破棄する
+function removeBox(box, uid, type) {
+    const deletedId = box.dataset.videoid;
+    
+    // リストからは元の動画IDで検索して削除
+    // ※ 完全に一致する最初の1つだけ消すための賢い処理
+    const index = streamList.findIndex(stream => stream.id === deletedId);
+    if (index !== -1) {
+        streamList.splice(index, 1);
+    }
     saveToSession();
 
-    if (type === 'youtube' && ytPlayers[id]) {
-        try { ytPlayers[id].destroy(); } catch(e){}
-        delete ytPlayers[id];
-    } else if (type === 'twitch' && twitchPlayers[id]) {
-        delete twitchPlayers[id];
+    if (type === 'youtube' && ytPlayers[uid]) {
+        try { ytPlayers[uid].destroy(); } catch(e){}
+        delete ytPlayers[uid];
+    } else if (type === 'twitch' && twitchPlayers[uid]) {
+        delete twitchPlayers[uid];
     }
 
     box.remove();
     
-    if (firstVideoId === id) {
+    if (firstVideoId === deletedId) {
         const nextBox = document.querySelector('.chat-box');
         if (nextBox) {
             setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
