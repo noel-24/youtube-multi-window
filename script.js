@@ -2,6 +2,11 @@ let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
 
+// 各プレイヤーのインスタンスを記憶するオブジェクト
+let ytPlayers = {};
+let twitchPlayers = {};
+let theaterPlayer = null;
+
 window.addEventListener('DOMContentLoaded', () => {
     const savedLayout = sessionStorage.getItem('savedLayoutType');
     if (savedLayout) {
@@ -109,7 +114,7 @@ function handleAddStreamButton() {
         return;
     }
 
-    if (!title) title = streamData.type === 'youtube' ? "YouTube配信" : "Twitch配信";
+    if (!title) title = streamData.type === 'youtube' ? "YouTube" : "Twitch";
 
     streamList.push({ id: streamData.id, title: title, type: streamData.type });
     saveToSession();
@@ -128,40 +133,58 @@ function createStreamDOM(id, title, type) {
     chatBox.dataset.type = type;
 
     const currentDomain = window.location.hostname || "localhost";
-    
-    let videoSrc = "";
-    let chatSrc = "";
+    const cleanChatUrl = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
+    const twitchChatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
 
-    // 💡 解決1：YouTubeのURL末尾に「&live=1」を付与して常にリアルタイム（最新）再生を強制
-    if (type === 'youtube') {
-        videoSrc = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&live=1`;
-        chatSrc = `https://www.youtube.com/live_chat?v=${id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
-    } else if (type === 'twitch') {
-        videoSrc = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&muted=true&autoplay=true`;
-        chatSrc = `https://www.twitch.tv/embed/${id}/chat?parent=${currentDomain}&darkpopout`;
-    }
+    const uniqueId = `player-${type}-${id}-${Date.now()}`;
 
     chatBox.innerHTML = `
         <div class="chat-header">
             <div class="chat-header-left">
                 <span class="chat-title-text" title="${title}">${title}</span>
-                <span class="chat-id-text">(${id})</span>
             </div>
-            <!-- 💡 解決3：誤操作防止のためのロック切り替えボタン（初期はロック状態 🔒） -->
-            <button class="lock-btn" onclick="toggleLock(this)" title="プレイヤーの操作ロック切り替え">🔒 ロック中</button>
+            <!-- 💡 新設：ツール独自の音量調整バー（初期値0 = ミュート） -->
+            <div class="volume-control-wrapper">
+                🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${id}', '${type}', this.value)">
+            </div>
             <button class="set-main-btn" onclick="setMainVideo('${id}', '${type}', this.closest('.chat-box'))">画面表示</button>
-            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'))">×</button>
+            <button class="close-btn" onclick="removeBox(this.closest('.chat-box'), '${id}', '${type}')">×</button>
         </div>
         <div class="box-content">
-            <!-- 💡 初期状態で「pointer-events: none」が効くようにクラスに「video-locked」を追加 -->
-            <iframe class="video-frame video-locked" data-id="${id}" data-type="${type}" src="${videoSrc}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            <div class="video-frame-wrapper">
+                <div id="${uniqueId}" class="api-player"></div>
+                <!-- 💡 解決3：画面の上に透明な盾を置いて、クリックなどの誤操作を100%防ぐ -->
+                <div class="video-touch-guard"></div>
+            </div>
             <div class="chat-frame-container">
-                <iframe class="chat-frame" data-id="${id}" data-type="${type}" src="${chatSrc}"></iframe>
+                <iframe class="chat-frame" data-id="${id}" data-type="${type}" src="${type === 'youtube' ? cleanChatUrl : twitchChatSrc}"></iframe>
             </div>
         </div>
     `;
 
     container.appendChild(chatBox);
+
+    // APIを使ってプレイヤーを初期化生成
+    setTimeout(() => {
+        if (type === 'youtube') {
+            ytPlayers[id] = new YT.Player(uniqueId, {
+                videoId: id,
+                playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0 },
+                events: {
+                    'onReady': (event) => { event.target.playVideo(); event.target.mute(); }
+                }
+            });
+        } else if (type === 'twitch') {
+            twitchPlayers[id] = new Twitch.Player(uniqueId, {
+                channel: id,
+                width: '100%',
+                height: '100%',
+                muted: true,
+                autoplay: true,
+                controls: false
+            });
+        }
+    }, 50);
     
     if (!firstVideoId) {
         setMainVideo(id, type, chatBox);
@@ -169,98 +192,101 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-// 💡 解決3：ロック状態を切り替える関数
-function toggleLock(btn) {
-    const chatBox = btn.closest('.chat-box');
-    const vFrame = chatBox.querySelector('.video-frame');
-    
-    if (vFrame.classList.contains('video-locked')) {
-        // ロック解除
-        vFrame.classList.remove('video-locked');
-        btn.innerHTML = "🔓 操作可能";
-        btn.style.color = "#00ffcc";
-    } else {
-        // ロックする
-        vFrame.classList.add('video-locked');
-        btn.innerHTML = "🔒 ロック中";
-        btn.style.color = "";
+// 💡 新設：スライダーを動かしたときにAPI経由で音量を変える関数
+function changeVolume(id, type, value) {
+    const val = parseInt(value);
+    if (type === 'youtube' && ytPlayers[id]) {
+        if (val === 0) {
+            ytPlayers[id].mute();
+        } else {
+            ytPlayers[id].unMute();
+            ytPlayers[id].setVolume(val);
+        }
+    } else if (type === 'twitch' && twitchPlayers[id]) {
+        if (val === 0) {
+            twitchPlayers[id].setMuted(true);
+        } else {
+            twitchPlayers[id].setMuted(false);
+            twitchPlayers[id].setVolume(val / 100); // Twitchは 0.0 〜 1.0 指定
+        }
     }
 }
 
 function setMainVideo(id, type, element) {
     firstVideoId = id;
-    const theater = document.getElementById('theaterIframe');
     const currentDomain = window.location.hostname || "localhost";
     
-    // 大画面側も常に最新を追うように「&live=1」を付与
+    // シアター用の枠をクリアして新しく生成
+    document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
+    
     if (type === 'youtube') {
-        theater.src = `https://www.youtube.com/embed/${id}?autoplay=1&live=1`;
+        theaterPlayer = new YT.Player('theaterIframe', {
+            videoId: id,
+            playerVars: { 'autoplay': 1, 'live': 1 },
+            events: { 'onReady': (event) => event.target.playVideo() }
+        });
     } else if (type === 'twitch') {
-        theater.src = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true`;
+        theaterPlayer = new Twitch.Player('theaterIframe', {
+            channel: id,
+            width: '100%',
+            height: '100%',
+            autoplay: true
+        });
     }
     
-    theater.dataset.id = id;
-    theater.dataset.type = type;
+    const theaterDOM = document.getElementById('theaterIframe');
+    if (theaterDOM) {
+        theaterDOM.dataset.id = id;
+        theaterDOM.dataset.type = type;
+    }
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
 }
 
-function removeBox(box) {
-    const deletedId = box.dataset.videoid;
-    
-    streamList = streamList.filter(stream => stream.id !== deletedId);
+function removeBox(box, id, type) {
+    streamList = streamList.filter(stream => stream.id !== id);
     saveToSession();
+
+    // インスタンスの破棄
+    if (type === 'youtube' && ytPlayers[id]) {
+        ytPlayers[id].destroy();
+        delete ytPlayers[id];
+    } else if (type === 'twitch' && twitchPlayers[id]) {
+        delete twitchPlayers[id];
+    }
 
     box.remove();
     
-    if (firstVideoId === deletedId) {
+    if (firstVideoId === id) {
         const nextBox = document.querySelector('.chat-box');
         if (nextBox) {
             setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
         } else {
             firstVideoId = "";
-            const theater = document.getElementById('theaterIframe');
-            theater.src = "";
-            theater.dataset.id = "";
-            theater.dataset.type = "";
+            document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
+            theaterPlayer = null;
         }
     }
     updateGridPattern();
 }
 
 function refreshAll() {
-    const theater = document.getElementById('theaterIframe');
-    const currentDomain = window.location.hostname || "localhost";
-    if (theater && theater.dataset.id) {
-        if (theater.dataset.type === 'youtube') {
-            theater.src = `https://www.youtube.com/embed/${theater.dataset.id}?autoplay=1&live=1`;
-        } else {
-            theater.src = `https://player.twitch.tv/?channel=${theater.dataset.id}&parent=${currentDomain}&autoplay=true`;
-        }
+    // ページそのもののリフレッシュではなく、全インスタンスを一度破棄して再構築するのが安全
+    const container = document.getElementById('chatContainer');
+    container.innerHTML = "";
+    ytPlayers = {};
+    twitchPlayers = {};
+    
+    if (streamList.length > 0) {
+        streamList.forEach(stream => {
+            createStreamDOM(stream.id, stream.title, stream.type);
+        });
+    } else {
+        document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
+        theaterPlayer = null;
     }
-
-    const videoFrames = document.querySelectorAll('.chat-container .video-frame');
-    videoFrames.forEach(frame => {
-        if (frame.dataset.id) {
-            if (frame.dataset.type === 'youtube') {
-                frame.src = `https://www.youtube.com/embed/${frame.dataset.id}?autoplay=1&mute=1&live=1`;
-            } else {
-                frame.src = `https://player.twitch.tv/?channel=${frame.dataset.id}&parent=${currentDomain}&muted=true&autoplay=true`;
-            }
-        }
-    });
-
-    const chatFrames = document.querySelectorAll('.chat-container .chat-frame');
-    box.forEach(frame => {
-        if (frame.dataset.id) {
-            if (frame.dataset.type === 'youtube') {
-                frame.src = `https://www.youtube.com/live_chat?v=${frame.dataset.id}&embed_domain=${currentDomain}&dark_theme=1&is_popout=1&vtype=live`;
-            } else {
-                frame.src = `https://www.twitch.tv/embed/${frame.dataset.id}/chat?parent=${currentDomain}&darkpopout`;
-            }
-        }
-    });
+    updateGridPattern();
 }
 
 function changeLayout(type, btn) {

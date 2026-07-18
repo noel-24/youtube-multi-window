@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi viewer</title>
+    <title>YouTube multi</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="https://player.twitch.tv/js/embed/v1.js"></script>
 </head>
 <body>
 
@@ -30,7 +32,7 @@
 
 <div class="main-content-area mode-focus-one" id="mainContentArea">
     <div class="main-video-theater" id="mainVideoTheater">
-        <iframe id="theaterIframe" src="" data-id="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div id="theaterPlayerPlace"></div>
     </div>
     <div class="chat-container" id="chatContainer"></div>
 </div>
@@ -47,6 +49,10 @@
                 <li><strong>タブタイトル：</strong> 任意入力。配信者名などを入力。</li>
                 <li><strong>ID / URL：</strong> URLか11桁のIDを入力して追加。</li>
             </ul>
+            <div class="help-alert">
+                <strong>⚠️ チャットが表示されない場合：</strong><br>
+                「Web Server for Chrome」などのローカルサーバー環境、または公開されたWebサイト上（http:// / https://）でのみ動作します。
+            </div>
         </div>
     </div>
 </div>
