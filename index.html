@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>multi</title>
+    <title>multi view</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 💡 外部からプレイヤーを遠隔操作するための公式APIを正しく読み込み -->
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="https://player.twitch.tv/js/embed/v1.js"></script>
 </head>
@@ -33,8 +32,8 @@
 
 <div class="main-content-area mode-focus-one" id="mainContentArea">
     <div class="main-video-theater" id="mainVideoTheater">
-        <!-- 大画面側はAPIを一切使わないクリーンな直挿しエリア -->
         <div id="theaterPlayerPlace"></div>
+        <div class="video-touch-guard"></div>
     </div>
     <div class="chat-container" id="chatContainer"></div>
 </div>

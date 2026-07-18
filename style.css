@@ -124,6 +124,16 @@ button:hover { opacity: 0.9; }
 .mode-focus-one .video-frame-wrapper { display: none !important; }
 .mode-focus-one .chat-frame-container { display: block; height: 100%; }
 
+/* 💡 シアター枠は親の高さが100%指定でも、中身のdivとiframeに高さが伝わらないと
+      iframeがブラウザ標準の小さいデフォルトサイズ(150px程度)になってしまうため明示指定する */
+.main-video-theater {
+    position: relative;
+}
+#theaterPlayerPlace {
+    width: 100%;
+    height: 100%;
+}
+
 @media (max-width: 900px) {
     .mode-focus-one {
         grid-template-columns: 1fr;
