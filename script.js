@@ -2,10 +2,19 @@ let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
 
-// 各プレイヤーのインスタンスを記憶するオブジェクト
 let ytPlayers = {};
 let twitchPlayers = {};
 let theaterPlayer = null;
+let isYTAPIReady = false; // 💡 YouTube APIの準備フラグ
+
+// 💡 YouTube公式APIが準備完了すると自動的に呼ばれる特殊な関数
+function onYouTubeIframeAPIReady() {
+    isYTAPIReady = true;
+    // セッションから復元する際、APIが遅れて読み込まれた場合のための安全策
+    if (streamList.length > 0 && Object.keys(ytPlayers).length === 0) {
+        initSavedStreams();
+    }
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     const savedLayout = sessionStorage.getItem('savedLayoutType');
@@ -18,13 +27,21 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedStreams = sessionStorage.getItem('savedStreamList');
     if (savedStreams) {
         const parsedStreams = JSON.parse(savedStreams);
-        parsedStreams.forEach(stream => {
-            streamList.push({ id: stream.id, title: stream.title, type: stream.type || 'youtube' });
-            createStreamDOM(stream.id, stream.title, stream.type || 'youtube');
-        });
+        streamList = parsedStreams; // データを格納
+        initSavedStreams();
     }
     updateGridPattern();
 });
+
+// 💡 復元時、APIの準備状態を見て安全にプレイヤーを組み立てる関数
+function initSavedStreams() {
+    const container = document.getElementById('chatContainer');
+    container.innerHTML = ""; // 一旦リセット
+    
+    streamList.forEach(stream => {
+        createStreamDOM(stream.id, stream.title, stream.type || 'youtube');
+    });
+}
 
 window.addEventListener('resize', () => {
     updateGridPattern();
@@ -143,7 +160,6 @@ function createStreamDOM(id, title, type) {
             <div class="chat-header-left">
                 <span class="chat-title-text" title="${title}">${title}</span>
             </div>
-            <!-- 💡 新設：ツール独自の音量調整バー（初期値0 = ミュート） -->
             <div class="volume-control-wrapper">
                 🔊<input type="range" class="volume-slider" min="0" max="100" value="0" oninput="changeVolume('${id}', '${type}', this.value)">
             </div>
@@ -153,7 +169,6 @@ function createStreamDOM(id, title, type) {
         <div class="box-content">
             <div class="video-frame-wrapper">
                 <div id="${uniqueId}" class="api-player"></div>
-                <!-- 💡 解決3：画面の上に透明な盾を置いて、クリックなどの誤操作を100%防ぐ -->
                 <div class="video-touch-guard"></div>
             </div>
             <div class="chat-frame-container">
@@ -164,27 +179,39 @@ function createStreamDOM(id, title, type) {
 
     container.appendChild(chatBox);
 
-    // APIを使ってプレイヤーを初期化生成
-    setTimeout(() => {
-        if (type === 'youtube') {
-            ytPlayers[id] = new YT.Player(uniqueId, {
-                videoId: id,
-                playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0 },
-                events: {
-                    'onReady': (event) => { event.target.playVideo(); event.target.mute(); }
-                }
-            });
-        } else if (type === 'twitch') {
-            twitchPlayers[id] = new Twitch.Player(uniqueId, {
-                channel: id,
-                width: '100%',
-                height: '100%',
-                muted: true,
-                autoplay: true,
-                controls: false
-            });
-        }
-    }, 50);
+    // 💡 修正：YouTubeの場合、APIの準備が完了しているか（isYTAPIReady）を確認してから初期化
+    if (type === 'youtube') {
+        const initYT = () => {
+            if (isYTAPIReady && window.YT && window.YT.Player) {
+                ytPlayers[id] = new YT.Player(uniqueId, {
+                    videoId: id,
+                    playerVars: { 'autoplay': 1, 'mute': 1, 'live': 1, 'controls': 0, 'rel': 0 },
+                    events: {
+                        'onReady': (event) => { event.target.playVideo(); event.target.mute(); }
+                    }
+                });
+            } else {
+                setTimeout(initYT, 100); // 準備ができるまで100msごとにリトライ
+            }
+        };
+        initYT();
+    } else if (type === 'twitch') {
+        const initTwitch = () => {
+            if (window.Twitch && window.Twitch.Player) {
+                twitchPlayers[id] = new Twitch.Player(uniqueId, {
+                    channel: id,
+                    width: '100%',
+                    height: '100%',
+                    muted: true,
+                    autoplay: true,
+                    controls: false
+                });
+            } else {
+                setTimeout(initTwitch, 100);
+            }
+        };
+        initTwitch();
+    }
     
     if (!firstVideoId) {
         setMainVideo(id, type, chatBox);
@@ -192,10 +219,9 @@ function createStreamDOM(id, title, type) {
     updateGridPattern();
 }
 
-// 💡 新設：スライダーを動かしたときにAPI経由で音量を変える関数
 function changeVolume(id, type, value) {
     const val = parseInt(value);
-    if (type === 'youtube' && ytPlayers[id]) {
+    if (type === 'youtube' && ytPlayers[id] && typeof ytPlayers[id].setVolume === 'function') {
         if (val === 0) {
             ytPlayers[id].mute();
         } else {
@@ -207,38 +233,52 @@ function changeVolume(id, type, value) {
             twitchPlayers[id].setMuted(true);
         } else {
             twitchPlayers[id].setMuted(false);
-            twitchPlayers[id].setVolume(val / 100); // Twitchは 0.0 〜 1.0 指定
+            twitchPlayers[id].setVolume(val / 100);
         }
     }
 }
 
 function setMainVideo(id, type, element) {
     firstVideoId = id;
-    const currentDomain = window.location.hostname || "localhost";
     
-    // シアター用の枠をクリアして新しく生成
     document.getElementById('mainVideoTheater').innerHTML = '<div id="theaterIframe"></div>';
     
     if (type === 'youtube') {
-        theaterPlayer = new YT.Player('theaterIframe', {
-            videoId: id,
-            playerVars: { 'autoplay': 1, 'live': 1 },
-            events: { 'onReady': (event) => event.target.playVideo() }
-        });
+        const initTheaterYT = () => {
+            if (isYTAPIReady && window.YT && window.YT.Player) {
+                theaterPlayer = new YT.Player('theaterIframe', {
+                    videoId: id,
+                    playerVars: { 'autoplay': 1, 'live': 1 },
+                    events: { 'onReady': (event) => event.target.playVideo() }
+                });
+            } else {
+                setTimeout(initTheaterYT, 100);
+            }
+        };
+        initTheaterYT();
     } else if (type === 'twitch') {
-        theaterPlayer = new Twitch.Player('theaterIframe', {
-            channel: id,
-            width: '100%',
-            height: '100%',
-            autoplay: true
-        });
+        const initTheaterTwitch = () => {
+            if (window.Twitch && window.Twitch.Player) {
+                theaterPlayer = new Twitch.Player('theaterIframe', {
+                    channel: id,
+                    width: '100%',
+                    height: '100%',
+                    autoplay: true
+                });
+            } else {
+                setTimeout(initTheaterTwitch, 100);
+            }
+        };
+        initTheaterTwitch();
     }
     
-    const theaterDOM = document.getElementById('theaterIframe');
-    if (theaterDOM) {
-        theaterDOM.dataset.id = id;
-        theaterDOM.dataset.type = type;
-    }
+    setTimeout(() => {
+        const theaterDOM = document.getElementById('theaterIframe');
+        if (theaterDOM) {
+            theaterDOM.dataset.id = id;
+            theaterDOM.dataset.type = type;
+        }
+    }, 200);
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
@@ -248,7 +288,6 @@ function removeBox(box, id, type) {
     streamList = streamList.filter(stream => stream.id !== id);
     saveToSession();
 
-    // インスタンスの破棄
     if (type === 'youtube' && ytPlayers[id]) {
         ytPlayers[id].destroy();
         delete ytPlayers[id];
@@ -272,7 +311,6 @@ function removeBox(box, id, type) {
 }
 
 function refreshAll() {
-    // ページそのもののリフレッシュではなく、全インスタンスを一度破棄して再構築するのが安全
     const container = document.getElementById('chatContainer');
     container.innerHTML = "";
     ytPlayers = {};
