@@ -103,8 +103,8 @@ button:hover { opacity: 0.9; }
     display: grid;
     gap: 15px;
     flex-grow: 1;
+    min-height: 0; /* 💡 flexアイテムはデフォルトでmin-height:autoのため、これがないと中身に押されて縮まなくなる */
     overflow: hidden;
-    height: calc(100vh - 85px); 
 }
 
 .chat-container { 
@@ -228,11 +228,6 @@ button:hover { opacity: 0.9; }
     padding: 0;
     background: #444;
     border-radius: 2px;
-}
-/* 💡 メイン画面(シアター)に表示中の枠は、音がシアター側から出るためスライダーを無効化 */
-.volume-slider:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
 }
 
 .box-content {

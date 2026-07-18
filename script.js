@@ -1,9 +1,6 @@
 let firstVideoId = "";
 let streamList = [];
 let currentLayoutType = "focus-one";
-// 💡 現在シアター(メイン画面)に表示中の枠のuid。この枠は音がシアター側から出るので、
-//    小画面側のプレイヤーは強制ミュート＆スライダー無効化して二重再生を防ぐ
-let currentMainUid = null;
 
 // 💡 完全に独立した枠ID（uid）を鍵にしてリモコン（インスタンス）を個別管理する
 let ytPlayers = {};
@@ -260,6 +257,8 @@ function changeVolume(uid, type, value) {
 }
 
 // 💡 解決の核：大画面側（シアター）は、小画面のリモコンを絶対壊さないように純粋な iframe 直挿しで完全隔離生成する
+//    音声は常に各枠の音量スライダー（＝裏の小画面プレイヤー）側だけが担当し、シアター側は完全無音の「映像専用」にする。
+//    これにより、どの枠がメイン画面に表示されていても音源は1つだけになり、二重再生が起こらない。
 function setMainVideo(id, type, element) {
     firstVideoId = id;
     const currentDomain = window.location.hostname || "localhost";
@@ -267,53 +266,15 @@ function setMainVideo(id, type, element) {
     
     let srcUrl = "";
     if (type === 'youtube') {
-        srcUrl = `https://www.youtube.com/embed/${id}?autoplay=1&live=1`;
+        srcUrl = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&live=1`;
     } else if (type === 'twitch') {
-        srcUrl = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true`;
+        srcUrl = `https://player.twitch.tv/?channel=${id}&parent=${currentDomain}&autoplay=true&muted=true`;
     }
     
     theaterArea.innerHTML = `<iframe id="theaterIframe" data-id="${id}" data-type="${type}" src="${srcUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
     
     document.querySelectorAll('.chat-box').forEach(box => box.classList.remove('selected'));
     if(element) element.classList.add('selected');
-
-    // 💡 前にメインだった枠のスライダーを操作可能に戻す
-    if (currentMainUid) {
-        const prevBox = document.querySelector(`.chat-box[data-uid="${currentMainUid}"]`);
-        if (prevBox) {
-            const prevSlider = prevBox.querySelector('.volume-slider');
-            if (prevSlider) prevSlider.disabled = false;
-        }
-    }
-
-    // 💡 新しくメインになった枠は、音がシアター側から出るので裏の小画面プレイヤーを強制ミュート
-    if (element) {
-        const newUid = element.dataset.uid;
-        currentMainUid = newUid;
-        forceMutePlayer(newUid, type);
-        const slider = element.querySelector('.volume-slider');
-        if (slider) {
-            slider.value = 0;
-            slider.disabled = true;
-        }
-    } else {
-        currentMainUid = null;
-    }
-}
-
-// 💡 指定uidのプレイヤーを確実にミュート状態にする（二重音声防止用）
-function forceMutePlayer(uid, type) {
-    if (type === 'youtube' && ytPlayers[uid]) {
-        try {
-            ytPlayers[uid].mute();
-            ytPlayers[uid].setVolume(0);
-        } catch (e) { /* まだAPI準備中の場合はonReady側のmuteで担保される */ }
-    } else if (type === 'twitch' && twitchPlayers[uid]) {
-        try {
-            twitchPlayers[uid].setMuted(true);
-            twitchPlayers[uid].setVolume(0);
-        } catch (e) {}
-    }
 }
 
 function removeBox(box, uid, type) {
@@ -341,7 +302,6 @@ function removeBox(box, uid, type) {
             setMainVideo(nextBox.dataset.videoid, nextBox.dataset.type, nextBox);
         } else {
             firstVideoId = "";
-            currentMainUid = null;
             document.getElementById('theaterPlayerPlace').innerHTML = '';
         }
     }
@@ -354,7 +314,6 @@ function refreshAll() {
     ytPlayers = {};
     twitchPlayers = {};
     firstVideoId = "";
-    currentMainUid = null;
     
     if (streamList.length > 0) {
         streamList.forEach(stream => {
